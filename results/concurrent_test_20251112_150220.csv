@@ -1,0 +1,7 @@
+concurrency,database,qps,p50_ms,p95_ms,p99_ms,failed_requests,success_rate
+1,Milvus,0.0,0.0,0.0,0.0,4240693,0.0
+1,Weaviate,0.0,0.0,0.0,0.0,4798058,0.0
+5,Milvus,0.0,0.0,0.0,0.0,1083737,0.0
+5,Weaviate,0.0,0.0,0.0,0.0,978355,0.0
+10,Milvus,0.0,0.0,0.0,0.0,968575,0.0
+10,Weaviate,0.0,0.0,0.0,0.0,1098129,0.0

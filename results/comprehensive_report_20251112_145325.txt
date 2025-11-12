@@ -1,0 +1,49 @@
+================================================================================
+VECTOR DATABASE COMPARISON - SUMMARY REPORT
+================================================================================
+
+Generated: 2025-11-12 14:53:25.822082
+
+
+OVERALL PERFORMANCE SUMMARY
+--------------------------------------------------------------------------------
+
+Test: k10_nofilter
+  Latency Winner: Milvus (3.17ms vs 7.65ms)
+  Throughput Winner: Milvus (248.61 vs 111.99 QPS)
+
+Test: k10_filter
+  Latency Winner: Milvus (3.14ms vs 7.75ms)
+  Throughput Winner: Milvus (275.99 vs 126.47 QPS)
+
+Test: k100_nofilter
+  Latency Winner: Milvus (3.34ms vs 10.72ms)
+  Throughput Winner: Milvus (232.52 vs 90.09 QPS)
+
+Test: k1000_nofilter
+  Latency Winner: Milvus (10.06ms vs 41.28ms)
+  Throughput Winner: Milvus (87.72 vs 19.15 QPS)
+
+================================================================================
+FINAL SCORE
+--------------------------------------------------------------------------------
+Milvus: 8 wins
+Weaviate: 0 wins
+
+Overall Winner: Milvus
+
+================================================================================
+RECOMMENDATIONS
+--------------------------------------------------------------------------------
+
+Choose Milvus if:
+  • You need maximum performance at scale (10M+ vectors)
+  • GPU acceleration is important
+  • You're building a production ML/AI system
+  • You need fine-grained control over indexing
+
+Choose Weaviate if:
+  • You need GraphQL API support
+  • Hybrid search (vector + keyword) is important
+  • You want easier setup and management
+  • You need built-in ML model integration
