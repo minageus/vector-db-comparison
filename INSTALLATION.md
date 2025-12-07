@@ -86,11 +86,11 @@ brew install --cask docker
 ## Step 2: Clone/Download Project
 
 ```powershell
-# If using Git
-git clone <repository-url>
+# Clone the repository
+git clone https://github.com/minageus/vector-db-comparison.git
 cd vector-db-comparison
 
-# Or download and extract ZIP
+# Or download and extract ZIP from GitHub
 # Then navigate to the directory
 cd vector-db-comparison
 ```
@@ -171,8 +171,8 @@ cd ..
 # Test Milvus connection
 python -c "from pymilvus import connections; connections.connect('default', host='localhost', port='19530'); print('✓ Milvus connected')"
 
-# Test Weaviate connection
-python -c "import weaviate; client = weaviate.Client('http://localhost:8080'); print('✓ Weaviate connected')"
+# Test Weaviate connection (v4 client)
+python -c "import weaviate; client = weaviate.connect_to_local(host='localhost', port=8080); print('✓ Weaviate connected'); client.close()"
 ```
 
 ---

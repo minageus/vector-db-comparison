@@ -25,19 +25,28 @@ class DatasetDownloader:
     # Dataset URLs and metadata
     DATASETS = {
         'sift1m': {
-            'url': 'ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz',
+            'url': 'http://corpus-texmex.irisa.fr/sift.tar.gz',
+            'mirror_urls': [
+                'ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz',
+            ],
             'size_mb': 161,
             'description': 'SIFT1M - 1M SIFT image descriptors (128D)',
             'files': ['sift_base.fvecs', 'sift_query.fvecs', 'sift_groundtruth.ivecs', 'sift_learn.fvecs']
         },
         'sift10k': {
-            'url': 'ftp://ftp.irisa.fr/local/texmex/corpus/siftsmall.tar.gz',
+            'url': 'http://corpus-texmex.irisa.fr/siftsmall.tar.gz',
+            'mirror_urls': [
+                'ftp://ftp.irisa.fr/local/texmex/corpus/siftsmall.tar.gz',
+            ],
             'size_mb': 16,
             'description': 'SIFT10K - 10K SIFT descriptors (128D) - Small test set',
             'files': ['siftsmall_base.fvecs', 'siftsmall_query.fvecs', 'siftsmall_groundtruth.ivecs']
         },
         'gist1m': {
-            'url': 'ftp://ftp.irisa.fr/local/texmex/corpus/gist.tar.gz',
+            'url': 'http://corpus-texmex.irisa.fr/gist.tar.gz',
+            'mirror_urls': [
+                'ftp://ftp.irisa.fr/local/texmex/corpus/gist.tar.gz',
+            ],
             'size_mb': 3600,
             'description': 'GIST1M - 1M GIST image features (960D)',
             'files': ['gist_base.fvecs', 'gist_query.fvecs', 'gist_groundtruth.ivecs', 'gist_learn.fvecs']
@@ -126,12 +135,38 @@ class DatasetDownloader:
         print(f"Size: ~{dataset_info['size_mb']} MB")
         print(f"{'='*60}\n")
         
-        # Download file
-        url = dataset_info['url']
-        filename = url.split('/')[-1]
+        # Try primary URL first, then mirrors
+        urls_to_try = [dataset_info['url']]
+        if 'mirror_urls' in dataset_info:
+            urls_to_try.extend(dataset_info['mirror_urls'])
+        
+        filename = urls_to_try[0].split('/')[-1]
         filepath = dataset_dir / filename
         
-        self._download_file(url, filepath)
+        # Try each URL until one works
+        last_error = None
+        for i, url in enumerate(urls_to_try):
+            try:
+                if i > 0:
+                    print(f"\nTrying mirror {i}: {url}")
+                self._download_file(url, filepath)
+                break  # Success!
+            except Exception as e:
+                last_error = e
+                print(f"Failed: {e}")
+                if i < len(urls_to_try) - 1:
+                    continue
+                else:
+                    # All URLs failed
+                    print(f"\n{'='*60}")
+                    print("ERROR: All download sources failed!")
+                    print(f"{'='*60}")
+                    print("\nManual download instructions:")
+                    print(f"1. Visit: http://corpus-texmex.irisa.fr/")
+                    print(f"2. Download: {filename}")
+                    print(f"3. Place in: {dataset_dir}")
+                    print(f"4. Re-run the benchmark")
+                    raise last_error
         
         # Extract if compressed
         if filename.endswith('.tar.gz'):
@@ -151,6 +186,10 @@ class DatasetDownloader:
         # Handle FTP URLs
         if url.startswith('ftp://'):
             import urllib.request
+            import socket
+            
+            # Set socket timeout to avoid hanging
+            socket.setdefaulttimeout(30)
             
             def reporthook(block_num, block_size, total_size):
                 if not hasattr(reporthook, 'pbar'):
@@ -162,12 +201,12 @@ class DatasetDownloader:
                 if hasattr(reporthook, 'pbar'):
                     reporthook.pbar.close()
             except Exception as e:
-                print(f"FTP download failed: {e}")
-                print("Please download manually from: http://corpus-texmex.irisa.fr/")
+                if hasattr(reporthook, 'pbar'):
+                    reporthook.pbar.close()
                 raise
         else:
-            # HTTP download
-            response = requests.get(url, stream=True)
+            # HTTP download with timeout
+            response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
             
             total_size = int(response.headers.get('content-length', 0))
