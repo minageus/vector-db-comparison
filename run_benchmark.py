@@ -10,10 +10,16 @@ This script covers ALL project requirements:
 5. Resource monitoring (CPU, Memory)
 
 Usage:
-    python run_benchmark.py --dataset sift1m        # 1M vectors
-    python run_benchmark.py --dataset gist1m        # 1M x 960D (biggest)
-    python run_benchmark.py --dataset deep-image-96 # 10M vectors
-    python run_benchmark.py --dataset nytimes-256   # 290K vectors
+    python run_benchmark.py --dataset sift1m            # 1M vectors, 128D
+    python run_benchmark.py --dataset gist1m            # 1M x 960D (biggest)
+    python run_benchmark.py --dataset glove-25          # 1.2M vectors, 25D (fast)
+    python run_benchmark.py --dataset glove-200         # 1.2M vectors, 200D (medium-large)
+    python run_benchmark.py --dataset deep-image-96     # 10M vectors (too big for laptop)
+    python run_benchmark.py --dataset nytimes-256       # 290K vectors
+    
+    # Use --subset for custom sizes:
+    python run_benchmark.py --dataset glove-25 --subset 500000   # 500K subset
+    python run_benchmark.py --dataset glove-200 --subset 2000000 # 2M subset (if you have RAM)
 """
 
 import argparse
@@ -512,8 +518,8 @@ Examples:
                        choices=[
                            # Standard ANN datasets
                            'sift1m', 'gist1m', 
-                           # Word embeddings
-                           'glove-100', 'glove-200', 'glove-300',
+                           # Word embeddings (varied sizes)
+                           'glove-25', 'glove-100', 'glove-200', 'glove-300',
                            # Image datasets (HDF5 from ann-benchmarks.com)
                            'mnist-784', 'fashion-mnist-784',
                            # Large-scale datasets

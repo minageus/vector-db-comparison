@@ -314,7 +314,8 @@ class RealDatasetLoader:
         # HDF5 datasets from ann-benchmarks.com
         hdf5_datasets = [
             'mnist-784', 'fashion-mnist-784', 'nytimes-256', 
-            'lastfm-64', 'kosarak-27983', 'deep-image-96', 'random-xs-20'
+            'lastfm-64', 'kosarak-27983', 'deep-image-96', 'random-xs-20',
+            'glove-25', 'glove-200'
         ]
         
         if name in specific_loaders:

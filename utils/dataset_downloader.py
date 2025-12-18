@@ -57,6 +57,18 @@ class DatasetDownloader:
             'description': 'GloVe - Word embeddings (100D)',
             'files': ['glove.6B.100d.txt']
         },
+        'glove-25': {
+            'url': 'https://ann-benchmarks.com/glove-25-angular.hdf5',
+            'size_mb': 120,
+            'description': 'GloVe-25 - 1.2M word embeddings (25D) - Good for 500K subset',
+            'files': ['glove-25-angular.hdf5']
+        },
+        'glove-200': {
+            'url': 'https://ann-benchmarks.com/glove-200-angular.hdf5',
+            'size_mb': 950,
+            'description': 'GloVe-200 - 1.2M word embeddings (200D) - Medium-large scale',
+            'files': ['glove-200-angular.hdf5']
+        },
         'mnist-784': {
             'url': 'https://ann-benchmarks.com/mnist-784-euclidean.hdf5',
             'size_mb': 217,
