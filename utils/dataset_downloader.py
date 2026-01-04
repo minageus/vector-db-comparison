@@ -54,13 +54,19 @@ class DatasetDownloader:
             'is_bigann_subset': True
         },
         'gist1m': {
-            'url': 'http://corpus-texmex.irisa.fr/gist.tar.gz',
+            'url': 'http://ann-benchmarks.com/gist-960-euclidean.hdf5',
             'mirror_urls': [
                 'ftp://ftp.irisa.fr/local/texmex/corpus/gist.tar.gz',
             ],
             'size_mb': 3600,
             'description': 'GIST1M - 1M GIST image features (960D)',
-            'files': ['gist_base.fvecs', 'gist_query.fvecs', 'gist_groundtruth.ivecs', 'gist_learn.fvecs']
+            'files': ['gist-960-euclidean.hdf5']
+        },
+        'gist-960': {
+            'url': 'http://ann-benchmarks.com/gist-960-euclidean.hdf5',
+            'size_mb': 3600,
+            'description': 'GIST-960 - 1M GIST image features (960D) - HDF5 format',
+            'files': ['gist-960-euclidean.hdf5']
         },
         'glove-100': {
             'url': 'http://downloads.cs.stanford.edu/nlp/data/glove.6B.zip',

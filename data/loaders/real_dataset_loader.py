@@ -314,12 +314,15 @@ class RealDatasetLoader:
             
             # Get distance metric from filename or attributes
             metric = 'L2'  # default
-            if 'angular' in str(hdf5_file) or 'cosine' in str(hdf5_file):
+            filename_lower = str(hdf5_file).lower()
+            if 'angular' in filename_lower or 'cosine' in filename_lower:
                 metric = 'cosine'
-            elif 'dot' in str(hdf5_file):
+            elif 'dot' in filename_lower:
                 metric = 'IP'
-            elif 'jaccard' in str(hdf5_file):
+            elif 'jaccard' in filename_lower:
                 metric = 'jaccard'
+            elif 'euclidean' in filename_lower:
+                metric = 'L2'
         
         n_vectors = base.shape[0]
         dimension = base.shape[1]
@@ -363,17 +366,16 @@ class RealDatasetLoader:
         specific_loaders = {
             'sift1m': self.load_sift1m,
             'sift10m': self.load_sift10m,
-            'gist1m': self.load_gist1m,
             'glove-100': lambda **kw: self.load_glove(dimension=100, **kw),
             'glove-200': lambda **kw: self.load_glove(dimension=200, **kw),
             'glove-300': lambda **kw: self.load_glove(dimension=300, **kw),
         }
-        
+
         # HDF5 datasets from ann-benchmarks.com
         hdf5_datasets = [
-            'mnist-784', 'fashion-mnist-784', 'nytimes-256', 
+            'mnist-784', 'fashion-mnist-784', 'nytimes-256',
             'lastfm-64', 'kosarak-27983', 'deep-image-96', 'random-xs-20',
-            'glove-25', 'glove-200'
+            'glove-25', 'glove-200', 'gist1m', 'gist-960'
         ]
         
         if name in specific_loaders:
