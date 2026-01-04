@@ -109,6 +109,8 @@ class MilvusLoader:
         
         start_time = time.time()
         print(f"Creating {index_type} index (this may take several minutes for large datasets)...")
+        print(f"  Index config: M={index_params.get('M', 'N/A')}, efConstruction={index_params.get('efConstruction', 'N/A')}")
+        print(f"  Distance metric: {metric_type}")
         self.collection.create_index(field_name="embedding", index_params=index_config)
         
         # Wait for index to be fully built

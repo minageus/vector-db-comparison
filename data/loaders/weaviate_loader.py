@@ -1,6 +1,9 @@
 import weaviate
 import weaviate.classes as wvc
 from weaviate.classes.config import Property, DataType, Configure
+from weaviate.classes.config import VectorDistances
+from weaviate.connect import ConnectionParams
+from weaviate.classes.init import AdditionalConfig, Timeout
 import time
 import psutil
 from typing import Dict, List
@@ -10,12 +13,22 @@ from tqdm import tqdm
 class WeaviateLoader:
     """Load data into Weaviate and track metrics"""
     
-    def __init__(self, host='localhost', port=8080):
+    # Index configuration for transparency/reproducibility
+    INDEX_CONFIG = {
+        'type': 'HNSW',
+        'ef': 200,
+        'efConstruction': 128,
+        'maxConnections': 64
+    }
+    
+    def __init__(self, host='localhost', port=8080, grpc_port=50051):
         self.host = host
         self.port = port
+        self.grpc_port = grpc_port
         self.client = None
         self.collection_name = "BenchmarkVector"
         self.collection = None
+        self.distance_metric = None
         self.metrics = {
             'load_time': 0,
             'vectors_per_second': 0,
@@ -25,28 +38,55 @@ class WeaviateLoader:
         }
     
     def connect(self):
-        """Connect to Weaviate server"""
+        """Connect to Weaviate server with extended timeouts for large batches"""
         self.client = weaviate.connect_to_local(
             host=self.host,
-            port=self.port
+            port=self.port,
+            grpc_port=self.grpc_port,
+            additional_config=AdditionalConfig(
+                timeout=Timeout(
+                    init=30,
+                    query=60,
+                    insert=300  # 5 minutes for large batch inserts
+                )
+            )
         )
-        print(f"Connected to Weaviate at {self.host}:{self.port}")
+        print(f"Connected to Weaviate at {self.host}:{self.port} (gRPC: {self.grpc_port})")
     
-    def create_schema(self, dimension: int, drop_existing=True):
-        """Create schema for vectors"""
+    def create_schema(self, dimension: int, drop_existing=True, metric_type: str = 'L2'):
+        """Create schema for vectors with specified distance metric
+        
+        Args:
+            dimension: Vector dimension
+            drop_existing: Whether to drop existing collection
+            metric_type: Distance metric - 'L2' (euclidean), 'IP' (inner product/cosine), 'cosine'
+        """
         if drop_existing:
             try:
                 self.client.collections.delete(self.collection_name)
             except:
                 pass
         
+        # Map metric type to Weaviate distance
+        metric_map = {
+            'L2': VectorDistances.L2_SQUARED,
+            'l2': VectorDistances.L2_SQUARED,
+            'IP': VectorDistances.COSINE,  # Inner product ~ cosine for normalized vectors
+            'ip': VectorDistances.COSINE,
+            'cosine': VectorDistances.COSINE,
+            'angular': VectorDistances.COSINE,
+        }
+        distance = metric_map.get(metric_type, VectorDistances.L2_SQUARED)
+        self.distance_metric = metric_type
+        
         self.collection = self.client.collections.create(
             name=self.collection_name,
             vectorizer_config=Configure.Vectorizer.none(),
             vector_index_config=Configure.VectorIndex.hnsw(
-                ef=200,
-                ef_construction=128,
-                max_connections=64
+                distance_metric=distance,
+                ef=self.INDEX_CONFIG['ef'],
+                ef_construction=self.INDEX_CONFIG['efConstruction'],
+                max_connections=self.INDEX_CONFIG['maxConnections']
             ),
             properties=[
                 Property(name="vectorId", data_type=DataType.INT),
@@ -55,6 +95,8 @@ class WeaviateLoader:
             ]
         )
         print(f"Created collection: {self.collection_name}")
+        print(f"  Index: HNSW (ef={self.INDEX_CONFIG['ef']}, efConstruction={self.INDEX_CONFIG['efConstruction']}, M={self.INDEX_CONFIG['maxConnections']})")
+        print(f"  Distance metric: {metric_type} -> {distance}")
     
     def load_data(
         self, 
@@ -65,7 +107,19 @@ class WeaviateLoader:
     ):
         """Load vectors into Weaviate in batches"""
         n_vectors = len(ids)
+        dimension = vectors.shape[1] if len(vectors.shape) > 1 else 1
         failed = 0
+        
+        # Adjust batch size based on vector dimension to avoid gRPC timeouts
+        # High-dimensional vectors need smaller batches
+        if dimension > 500:
+            batch_size = min(batch_size, 50)
+        elif dimension > 200:
+            batch_size = min(batch_size, 100)
+        else:
+            batch_size = min(batch_size, 200)
+        
+        print(f"Using batch size: {batch_size} (dimension: {dimension})")
         
         process = psutil.Process()
         mem_before = process.memory_info().rss / 1024 / 1024
@@ -76,7 +130,8 @@ class WeaviateLoader:
         if self.collection is None:
             self.collection = self.client.collections.get(self.collection_name)
         
-        with self.collection.batch.dynamic() as batch:
+        # Use fixed-size batching for better control over gRPC payload size
+        with self.collection.batch.fixed_size(batch_size=batch_size, concurrent_requests=2) as batch:
             for i in tqdm(range(n_vectors), desc="Loading vectors"):
                 properties = {
                     "vectorId": int(ids[i]),

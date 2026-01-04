@@ -16,6 +16,7 @@ Usage:
     python run_benchmark.py --dataset glove-25          # 1.2M vectors, 25D (fast)
     python run_benchmark.py --dataset glove-200         # 1.2M vectors, 200D (WARNING: high memory)
     python run_benchmark.py --dataset nytimes-256       # 290K vectors
+    python run_benchmark.py --dataset fashion-mnist-784
     
     # Use --subset for smaller tests:
     python run_benchmark.py --dataset glove-25 --subset 500000   # 500K subset
@@ -60,7 +61,8 @@ def run_complete_benchmark(
     dataset_name: str = 'sift1m',
     subset_size: int = None,
     run_scalability: bool = True,
-    run_filters: bool = True
+    run_filters: bool = True,
+    only_step: int = None
 ):
     """
     Run the complete benchmark suite covering all project requirements.
@@ -70,6 +72,7 @@ def run_complete_benchmark(
         subset_size: Number of vectors to use (None = full dataset)
         run_scalability: Whether to run scalability tests
         run_filters: Whether to run filter tests
+        only_step: Run only this step (1-6), None = run all
     """
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -84,8 +87,12 @@ def run_complete_benchmark(
         'scalability': {}
     }
 
+    # Helper to check if step should run
+    def should_run_step(step_num):
+        return only_step is None or only_step == step_num
+
     # =========================================================================
-    # STEP 1: LOAD REAL DATASET
+    # STEP 1: LOAD REAL DATASET (always runs - needed for data)
     # =========================================================================
     print_section("STEP 1: LOADING DATASET")
 
@@ -128,12 +135,22 @@ def run_complete_benchmark(
     print(f"  Raw size: {raw_data_size_mb:.2f} MB")
 
     ids = np.arange(n_vectors)
-    metric_type = 'L2' if info['metric'].lower() == 'l2' else 'IP'
+    metric_type = 'L2' if info['metric'].lower() in ['l2', 'euclidean'] else 'IP'
+    
+    # Print index configuration for reproducibility
+    print(f"\n[INDEX CONFIGURATION]")
+    print(f"  Milvus:   HNSW (M=16, efConstruction=200), metric={metric_type}")
+    print(f"  Weaviate: HNSW (M=64, efConstruction=128, ef=200), metric={info['metric']}")
 
     # =========================================================================
     # STEP 2: LOAD DATA INTO DATABASES (with monitoring)
     # =========================================================================
-    print_section("STEP 2: DATA LOADING (with time/memory monitoring)")
+    milvus_loader = None
+    weaviate_loader = None
+    collection_name = f"benchmark_{timestamp}"
+    
+    if should_run_step(2) or should_run_step(3) or should_run_step(4) or should_run_step(5):
+        print_section("STEP 2: DATA LOADING (with time/memory monitoring)")
 
     # Estimate time for large datasets
     if n_vectors >= 10000000:
@@ -217,7 +234,7 @@ def run_complete_benchmark(
     with ResourceMonitor() as weaviate_monitor:
         weaviate_loader = WeaviateLoader()
         weaviate_loader.connect()
-        weaviate_loader.create_schema(dimension)
+        weaviate_loader.create_schema(dimension, metric_type=info['metric'])
 
         batch_size = min(100, 10000 // dimension)
         load_start = time.time()
@@ -236,26 +253,28 @@ def run_complete_benchmark(
     # =========================================================================
     # STEP 3: STORAGE ANALYSIS
     # =========================================================================
-    print_section("STEP 3: STORAGE EFFICIENCY ANALYSIS")
+    if should_run_step(3):
+        print_section("STEP 3: STORAGE EFFICIENCY ANALYSIS")
 
-    storage_analyzer = StorageAnalyzer()
-    storage_analyzer.analyze_milvus_storage(collection_name=collection_name, raw_data_size_mb=raw_data_size_mb)
-    storage_analyzer.analyze_weaviate_storage(raw_data_size_mb=raw_data_size_mb)
-    storage_analyzer.print_comparison()
+        storage_analyzer = StorageAnalyzer()
+        storage_analyzer.analyze_milvus_storage(collection_name=collection_name, raw_data_size_mb=raw_data_size_mb)
+        storage_analyzer.analyze_weaviate_storage(raw_data_size_mb=raw_data_size_mb)
+        storage_analyzer.print_comparison()
 
-    all_results['storage'] = {
-        'raw_data_mb': raw_data_size_mb,
-        'milvus': storage_analyzer.results.get('milvus', {}),
-        'weaviate': storage_analyzer.results.get('weaviate', {})
-    }
+        all_results['storage'] = {
+            'raw_data_mb': raw_data_size_mb,
+            'milvus': storage_analyzer.results.get('milvus', {}),
+            'weaviate': storage_analyzer.results.get('weaviate', {})
+        }
 
     # =========================================================================
     # STEP 4: QUERY PERFORMANCE (with and without filters)
     # =========================================================================
-    print_section("STEP 4: QUERY PERFORMANCE BENCHMARKS")
+    if should_run_step(4):
+        print_section("STEP 4: QUERY PERFORMANCE BENCHMARKS")
 
-    milvus_executor = MilvusQueryExecutor(milvus_loader.collection)
-    weaviate_executor = WeaviateQueryExecutor(weaviate_loader.client, 'BenchmarkVector')
+        milvus_executor = MilvusQueryExecutor(milvus_loader.collection)
+        weaviate_executor = WeaviateQueryExecutor(weaviate_loader.client, 'BenchmarkVector')
 
     # Generate filters if needed
     query_gen = QueryGenerator()
@@ -280,76 +299,77 @@ def run_complete_benchmark(
     with ResourceMonitor() as milvus_query_monitor:
         runner.run_benchmark('Milvus', milvus_executor, query_vectors, test_configs, metric_type=metric_type)
 
-    print("\n[Weaviate] Running query benchmarks...")
-    with ResourceMonitor() as weaviate_query_monitor:
-        runner.run_benchmark('Weaviate', weaviate_executor, query_vectors, test_configs)
+        print("\n[Weaviate] Running query benchmarks...")
+        with ResourceMonitor() as weaviate_query_monitor:
+            runner.run_benchmark('Weaviate', weaviate_executor, query_vectors, test_configs)
 
-    comparison_df = runner.generate_comparison_report()
-    all_results['performance'] = comparison_df.to_dict('records')
+        comparison_df = runner.generate_comparison_report()
+        all_results['performance'] = comparison_df.to_dict('records')
 
-    print("\n[OK] Performance Results:")
-    print(comparison_df.to_string())
+        print("\n[OK] Performance Results:")
+        print(comparison_df.to_string())
 
     # =========================================================================
     # STEP 5: RECALL@K ACCURACY
     # =========================================================================
-    print_section("STEP 5: RECALL@K ACCURACY (Search Quality)")
+    if should_run_step(5):
+        print_section("STEP 5: RECALL@K ACCURACY (Search Quality)")
 
-    if groundtruth is not None:
-        recall_calc = RecallCalculator(metric=info['metric'].lower())
-        k_values = [1, 5, 10, 20, 50, 100]
-        recall_results = {'K': [], 'Milvus': [], 'Weaviate': []}
+        if groundtruth is not None:
+            recall_calc = RecallCalculator(metric=info['metric'].lower())
+            k_values = [1, 5, 10, 20, 50, 100]
+            recall_results = {'K': [], 'Milvus': [], 'Weaviate': []}
 
-        for k in k_values:
-            if k > groundtruth.shape[1]:
-                continue
+            for k in k_values:
+                if k > groundtruth.shape[1]:
+                    continue
 
-            # Milvus recall
-            # ef must be >= k for HNSW search
-            ef_value = max(k, 64)
-            milvus_retrieved = []
-            for query in query_vectors:
-                results = milvus_loader.collection.search(
-                    data=[query.tolist()],
-                    anns_field="embedding",
-                    param={"metric_type": metric_type, "params": {"ef": ef_value}},
-                    limit=k
-                )
-                milvus_retrieved.append([hit.id for hit in results[0]])
+                # Milvus recall
+                # ef must be >= k for HNSW search
+                ef_value = max(k, 64)
+                milvus_retrieved = []
+                for query in query_vectors:
+                    results = milvus_loader.collection.search(
+                        data=[query.tolist()],
+                        anns_field="embedding",
+                        param={"metric_type": metric_type, "params": {"ef": ef_value}},
+                        limit=k
+                    )
+                    milvus_retrieved.append([hit.id for hit in results[0]])
 
-            milvus_recall, _ = recall_calc.calculate_recall(milvus_retrieved, groundtruth, k=k)
+                milvus_recall, _ = recall_calc.calculate_recall(milvus_retrieved, groundtruth, k=k)
 
-            # Weaviate recall
-            weaviate_retrieved = []
-            for query in query_vectors:
-                results = weaviate_loader.collection.query.near_vector(
-                    near_vector=query.tolist(),
-                    limit=k,
-                    return_properties=["vectorId"]
-                )
-                weaviate_retrieved.append([obj.properties.get('vectorId', 0) for obj in results.objects])
+                # Weaviate recall
+                weaviate_retrieved = []
+                for query in query_vectors:
+                    results = weaviate_loader.collection.query.near_vector(
+                        near_vector=query.tolist(),
+                        limit=k,
+                        return_properties=["vectorId"]
+                    )
+                    weaviate_retrieved.append([obj.properties.get('vectorId', 0) for obj in results.objects])
 
-            weaviate_recall, _ = recall_calc.calculate_recall(weaviate_retrieved, groundtruth, k=k)
+                weaviate_recall, _ = recall_calc.calculate_recall(weaviate_retrieved, groundtruth, k=k)
 
-            recall_results['K'].append(k)
-            recall_results['Milvus'].append(milvus_recall)
-            recall_results['Weaviate'].append(weaviate_recall)
+                recall_results['K'].append(k)
+                recall_results['Milvus'].append(milvus_recall)
+                recall_results['Weaviate'].append(weaviate_recall)
 
-            winner = "Milvus" if milvus_recall > weaviate_recall else "Weaviate" if weaviate_recall > milvus_recall else "Tie"
-            print(f"  Recall@{k:3d}: Milvus={milvus_recall:.4f}, Weaviate={weaviate_recall:.4f} -> {winner}")
+                winner = "Milvus" if milvus_recall > weaviate_recall else "Weaviate" if weaviate_recall > milvus_recall else "Tie"
+                print(f"  Recall@{k:3d}: Milvus={milvus_recall:.4f}, Weaviate={weaviate_recall:.4f} -> {winner}")
 
-        all_results['recall'] = recall_results
+            all_results['recall'] = recall_results
 
-        # Save recall results
-        recall_df = pd.DataFrame(recall_results)
-        recall_df.to_csv(results_dir / f'recall_{timestamp}.csv', index=False)
-    else:
-        print("  [SKIP] No ground truth available for recall calculation")
+            # Save recall results
+            recall_df = pd.DataFrame(recall_results)
+            recall_df.to_csv(results_dir / f'recall_{timestamp}.csv', index=False)
+        else:
+            print("  [SKIP] No ground truth available for recall calculation")
 
     # =========================================================================
     # STEP 6: SCALABILITY ANALYSIS (optional)
     # =========================================================================
-    if run_scalability and n_vectors < 1000000:
+    if should_run_step(6) and run_scalability and n_vectors < 1000000:
         print_section("STEP 6: SCALABILITY ANALYSIS")
 
         scale_configs = [
@@ -388,12 +408,12 @@ def run_complete_benchmark(
             milvus_loader2.load_collection()
 
             milvus_exec2 = MilvusQueryExecutor(milvus_loader2.collection)
-            milvus_result = milvus_exec2.search(test_queries, top_k=10)
+            milvus_result = milvus_exec2.search(test_queries, top_k=10, metric_type=metric_type)
 
             # Test Weaviate
             weaviate_loader2 = WeaviateLoader()
             weaviate_loader2.connect()
-            weaviate_loader2.create_schema(dimension)
+            weaviate_loader2.create_schema(dimension, metric_type=info['metric'])
             weaviate_loader2.load_data(test_ids, test_vectors, test_metadata, batch_size=100)
 
             weaviate_exec2 = WeaviateQueryExecutor(weaviate_loader2.client, 'BenchmarkVector')
@@ -555,6 +575,9 @@ Examples:
                        help='Skip scalability analysis')
     parser.add_argument('--skip-filters', action='store_true',
                        help='Skip filter tests')
+    parser.add_argument('--only-step', type=int, default=None,
+                       choices=[1, 2, 3, 4, 5, 6],
+                       help='Run only a specific step (1-6)')
 
     args = parser.parse_args()
 
@@ -568,10 +591,14 @@ Examples:
     print("  4. Recall@K accuracy")
     print("  5. Scalability analysis")
     print("")
+    
+    if args.only_step:
+        print(f"[INFO] Running only step {args.only_step}\n")
 
     run_complete_benchmark(
         dataset_name=args.dataset,
         subset_size=args.subset,
         run_scalability=not args.skip_scalability,
-        run_filters=not args.skip_filters
+        run_filters=not args.skip_filters,
+        only_step=args.only_step
     )

@@ -38,7 +38,7 @@ class MilvusQueryExecutor:
         self, 
         query_vectors: np.ndarray,
         top_k: int = 10,
-        metric_type: str = 'IP',
+        metric_type: str = 'L2',
         search_params: Dict = None,
         filters: List[Dict] = None
     ) -> Dict:
