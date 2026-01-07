@@ -24,7 +24,7 @@ class RealDatasetLoader:
     
     def load_sift1m(self, download: bool = True) -> Dict[str, Any]:
         """
-        Load SIFT1M dataset
+        Load SIFT1M dataset (HDF5 format from ann-benchmarks.com)
         
         Returns:
             dict with keys:
@@ -34,6 +34,8 @@ class RealDatasetLoader:
                 - learn: (100K, 128) learning/training vectors
                 - metadata: dataset information
         """
+        import h5py
+        
         dataset_name = 'sift1m'
         dataset_dir = self.downloader.get_dataset_path(dataset_name)
         
@@ -44,7 +46,39 @@ class RealDatasetLoader:
             else:
                 raise FileNotFoundError(f"Dataset {dataset_name} not found. Use download=True")
         
-        # Find the actual directory containing the files (may be nested)
+        # Check for HDF5 file first (new format)
+        hdf5_file = dataset_dir / 'sift-128-euclidean.hdf5'
+        if hdf5_file.exists():
+            print(f"\nLoading SIFT1M from {hdf5_file}...")
+            with h5py.File(hdf5_file, 'r') as f:
+                base = np.array(f['train'])
+                query = np.array(f['test'])
+                groundtruth = np.array(f['neighbors'])
+            
+            print(f"OK Loaded SIFT1M (HDF5):")
+            print(f"  Base vectors: {base.shape}")
+            print(f"  Query vectors: {query.shape}")
+            print(f"  Ground truth: {groundtruth.shape}")
+            
+            metadata = self._generate_metadata(base.shape[0])
+            
+            return {
+                'base': base,
+                'query': query,
+                'groundtruth': groundtruth,
+                'learn': None,
+                'metadata': metadata,
+                'info': {
+                    'name': 'SIFT1M',
+                    'dimension': 128,
+                    'n_base': base.shape[0],
+                    'n_query': query.shape[0],
+                    'metric': 'L2',
+                    'dtype': 'float32'
+                }
+            }
+        
+        # Fallback to fvecs format (legacy)
         sift_dir = self._find_dataset_files(dataset_dir, 'sift_base.fvecs')
         
         print(f"\nLoading SIFT1M from {sift_dir}...")

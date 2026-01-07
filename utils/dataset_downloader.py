@@ -25,13 +25,15 @@ class DatasetDownloader:
     # Dataset URLs and metadata
     DATASETS = {
         'sift1m': {
-            'url': 'http://corpus-texmex.irisa.fr/sift.tar.gz',
+            'url': 'http://ann-benchmarks.com/sift-128-euclidean.hdf5',
             'mirror_urls': [
+                'http://corpus-texmex.irisa.fr/sift.tar.gz',
                 'ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz',
             ],
-            'size_mb': 161,
+            'size_mb': 501,
             'description': 'SIFT1M - 1M SIFT image descriptors (128D)',
-            'files': ['sift_base.fvecs', 'sift_query.fvecs', 'sift_groundtruth.ivecs', 'sift_learn.fvecs']
+            'files': ['sift-128-euclidean.hdf5'],
+            'is_hdf5': True
         },
         'sift10k': {
             'url': 'http://corpus-texmex.irisa.fr/siftsmall.tar.gz',

@@ -135,11 +135,46 @@ def run_complete_benchmark(
     print(f"  Raw size: {raw_data_size_mb:.2f} MB")
 
     ids = np.arange(n_vectors)
-    metric_type = 'L2' if info['metric'].lower() in ['l2', 'euclidean'] else 'IP'
-    
+
+    # Handle distance metric properly
+    # Milvus: L2, IP, or COSINE (Milvus 2.x supports native COSINE)
+    # For cosine similarity: normalize vectors and use IP, OR use native COSINE
+    dataset_metric = info['metric'].lower()
+
+    if dataset_metric in ['l2', 'euclidean']:
+        metric_type = 'L2'
+        normalize_vectors = False
+    elif dataset_metric in ['cosine', 'angular']:
+        # For cosine: normalize vectors + use IP (equivalent to cosine)
+        # This is the standard approach for Milvus cosine similarity
+        metric_type = 'IP'
+        normalize_vectors = True
+        print(f"\n[INFO] Cosine metric detected - normalizing vectors for Milvus (IP on normalized = cosine)")
+    elif dataset_metric in ['ip', 'dot', 'inner_product']:
+        metric_type = 'IP'
+        normalize_vectors = False
+    else:
+        metric_type = 'L2'  # Default fallback
+        normalize_vectors = False
+        print(f"\n[WARNING] Unknown metric '{dataset_metric}', defaulting to L2")
+
+    # Normalize vectors if needed for cosine similarity
+    if normalize_vectors:
+        print("  Normalizing base vectors...")
+        norms = np.linalg.norm(base_vectors, axis=1, keepdims=True)
+        norms[norms == 0] = 1  # Avoid division by zero
+        base_vectors = base_vectors / norms
+
+        print("  Normalizing query vectors...")
+        query_norms = np.linalg.norm(query_vectors, axis=1, keepdims=True)
+        query_norms[query_norms == 0] = 1
+        query_vectors = query_vectors / query_norms
+        print("  [OK] Vectors normalized")
+
     # Print index configuration for reproducibility
     print(f"\n[INDEX CONFIGURATION]")
-    print(f"  Milvus:   HNSW (M=16, efConstruction=200), metric={metric_type}")
+    print(f"  Milvus:   HNSW (M=16, efConstruction=200), metric={metric_type}" +
+          (" (normalized for cosine)" if normalize_vectors else ""))
     print(f"  Weaviate: HNSW (M=64, efConstruction=128, ef=200), metric={info['metric']}")
 
     # =========================================================================

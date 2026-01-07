@@ -781,6 +781,165 @@ def create_qps_scalability_chart(benchmarks):
     return fig
 
 
+def create_dimension_impact_chart(benchmarks):
+    """Scatter plot showing how latency scales with vector dimensions."""
+    data = []
+    for b in benchmarks:
+        if b['dataset'] and b['query_performance'] is not None:
+            perf = b['query_performance']
+            m_row = perf[(perf['Database'] == 'Milvus') & (perf['Test'] == 'k10_nofilter')]
+            w_row = perf[(perf['Database'] == 'Weaviate') & (perf['Test'] == 'k10_nofilter')]
+
+            if not m_row.empty:
+                data.append({
+                    'Dataset': b['dataset'],
+                    'Dimensions': b['dimensions'],
+                    'Vectors': b['vectors'],
+                    'Database': 'Milvus',
+                    'P50 Latency (ms)': m_row['P50 (ms)'].values[0]
+                })
+            if not w_row.empty:
+                data.append({
+                    'Dataset': b['dataset'],
+                    'Dimensions': b['dimensions'],
+                    'Vectors': b['vectors'],
+                    'Database': 'Weaviate',
+                    'P50 Latency (ms)': w_row['P50 (ms)'].values[0]
+                })
+
+    if not data:
+        return None
+
+    df = pd.DataFrame(data)
+
+    fig = px.scatter(
+        df, x='Dimensions', y='P50 Latency (ms)', color='Database',
+        size='Vectors',
+        hover_data=['Dataset', 'Vectors'],
+        color_discrete_map={'Milvus': '#667eea', 'Weaviate': '#e17055'},
+    )
+
+    # Add trend lines for each database
+    for db, color in [('Milvus', '#667eea'), ('Weaviate', '#e17055')]:
+        df_db = df[df['Database'] == db].sort_values('Dimensions')
+        if len(df_db) > 1:
+            fig.add_trace(go.Scatter(
+                x=df_db['Dimensions'],
+                y=df_db['P50 Latency (ms)'],
+                mode='lines',
+                name=f'{db} trend',
+                line=dict(color=color, dash='dash', width=2),
+                showlegend=False
+            ))
+
+    fig.update_layout(
+        title="📐 Dimension Impact: Latency vs Vector Dimensions (K10 queries)",
+        xaxis_title="Vector Dimensions",
+        yaxis_title="P50 Latency (ms)",
+        height=450,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        plot_bgcolor='rgba(0,0,0,0)',
+    )
+
+    return fig
+
+
+def create_memory_efficiency_chart(benchmarks):
+    """Bar chart showing memory efficiency (MB per 100K vectors)."""
+    data = []
+    for b in benchmarks:
+        if b['dataset'] and b['vectors'] > 0:
+            m_mem = b['loading']['Milvus']['peak_memory']
+            w_mem = b['loading']['Weaviate']['peak_memory']
+
+            # Calculate MB per 100K vectors
+            m_efficiency = (m_mem / b['vectors']) * 100000
+            w_efficiency = (w_mem / b['vectors']) * 100000
+
+            data.append({
+                'Dataset': b['dataset'],
+                'Database': 'Milvus',
+                'MB per 100K vectors': m_efficiency,
+                'Dimensions': b['dimensions']
+            })
+            data.append({
+                'Dataset': b['dataset'],
+                'Database': 'Weaviate',
+                'MB per 100K vectors': w_efficiency,
+                'Dimensions': b['dimensions']
+            })
+
+    if not data:
+        return None
+
+    df = pd.DataFrame(data)
+
+    fig = px.bar(
+        df, x='Dataset', y='MB per 100K vectors', color='Database',
+        barmode='group',
+        color_discrete_map={'Milvus': '#667eea', 'Weaviate': '#e17055'},
+        text='MB per 100K vectors',
+        hover_data=['Dimensions']
+    )
+
+    fig.update_traces(texttemplate='%{text:.1f}', textposition='outside')
+    fig.update_layout(
+        title="💾 Memory Efficiency (MB per 100K vectors) - Lower is Better",
+        height=400,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        plot_bgcolor='rgba(0,0,0,0)',
+    )
+
+    return fig
+
+
+def create_p99_latency_chart(benchmarks):
+    """Bar chart comparing P99 tail latencies across all datasets."""
+    data = []
+    for b in benchmarks:
+        if b['dataset'] and b['query_performance'] is not None:
+            perf = b['query_performance']
+            m_row = perf[(perf['Database'] == 'Milvus') & (perf['Test'] == 'k10_nofilter')]
+            w_row = perf[(perf['Database'] == 'Weaviate') & (perf['Test'] == 'k10_nofilter')]
+
+            if not m_row.empty:
+                data.append({
+                    'Dataset': b['dataset'],
+                    'Database': 'Milvus',
+                    'P99 Latency (ms)': m_row['P99 (ms)'].values[0]
+                })
+            if not w_row.empty:
+                data.append({
+                    'Dataset': b['dataset'],
+                    'Database': 'Weaviate',
+                    'P99 Latency (ms)': w_row['P99 (ms)'].values[0]
+                })
+
+    if not data:
+        return None
+
+    df = pd.DataFrame(data)
+
+    fig = px.bar(
+        df, x='Dataset', y='P99 Latency (ms)', color='Database',
+        barmode='group',
+        color_discrete_map={'Milvus': '#667eea', 'Weaviate': '#e17055'},
+        text='P99 Latency (ms)'
+    )
+
+    fig.update_traces(texttemplate='%{text:.1f}ms', textposition='outside')
+    fig.update_layout(
+        title="⚠️ P99 Tail Latency (K10 queries) - Critical for Production SLAs",
+        xaxis_title="Dataset",
+        yaxis_title="P99 Latency (ms)",
+        height=400,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        plot_bgcolor='rgba(0,0,0,0)',
+    )
+
+    return fig
+
+
 def create_recall_comparison_all(benchmarks):
     """Compare Recall@10 across all datasets that have recall data."""
     data = []
@@ -1002,7 +1161,11 @@ def create_summary_table(benchmarks):
     for b in benchmarks:
         if not b['dataset']:
             continue
-        
+
+        # Calculate memory efficiency (MB per 100K vectors)
+        m_eff = (b['loading']['Milvus']['peak_memory'] / b['vectors']) * 100000 if b['vectors'] > 0 else 0
+        w_eff = (b['loading']['Weaviate']['peak_memory'] / b['vectors']) * 100000 if b['vectors'] > 0 else 0
+
         row = {
             'Dataset': b['dataset'],
             'Vectors': f"{b['vectors']:,}",
@@ -1011,6 +1174,8 @@ def create_summary_table(benchmarks):
             'W Load (s)': f"{b['loading']['Weaviate']['load_time']:.1f}",
             'M Mem (MB)': f"{b['loading']['Milvus']['peak_memory']:.0f}",
             'W Mem (MB)': f"{b['loading']['Weaviate']['peak_memory']:.0f}",
+            'M MB/100K': f"{m_eff:.1f}",
+            'W MB/100K': f"{w_eff:.1f}",
         }
         
         if b['query_performance'] is not None:
@@ -1249,33 +1414,75 @@ def main():
         # Load Time & Memory Comparison
         st.subheader("⏱️ Loading Performance Comparison")
         col1, col2 = st.columns(2)
-        
+
         with col1:
             fig = create_load_time_comparison_all(all_benchmarks)
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
-        
+
         with col2:
             fig = create_memory_comparison_all(all_benchmarks)
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
-        
+
+        # Memory Efficiency Chart
+        st.subheader("💾 Memory Efficiency Analysis")
+        fig = create_memory_efficiency_chart(all_benchmarks)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption("Memory efficiency normalized per 100K vectors - accounts for different dataset sizes")
+
         st.divider()
         
         # Scalability Analysis
         st.subheader("📈 Scalability Analysis")
         col1, col2 = st.columns(2)
-        
+
         with col1:
             fig = create_scalability_chart(all_benchmarks)
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
-        
+
         with col2:
             fig = create_qps_scalability_chart(all_benchmarks)
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
-        
+
+        st.divider()
+
+        # Dimension Impact Analysis
+        st.subheader("📐 Dimension Impact Analysis")
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            fig = create_dimension_impact_chart(all_benchmarks)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            st.markdown("""
+            **How dimensions affect performance:**
+
+            Higher dimensional vectors require:
+            - More memory per vector
+            - More computation for distance calculations
+            - Larger index structures
+
+            This chart reveals how each database handles the "curse of dimensionality" -
+            the exponential increase in computational complexity as dimensions grow.
+
+            *Bubble size = dataset size*
+            """)
+
+        st.divider()
+
+        # Tail Latency Analysis
+        st.subheader("⚠️ Tail Latency Analysis (P99)")
+        fig = create_p99_latency_chart(all_benchmarks)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption("P99 latency shows worst-case performance for 99% of queries - critical for production SLA planning")
+
         st.divider()
         
         # Recall Comparison
