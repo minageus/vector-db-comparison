@@ -116,9 +116,11 @@ def run_complete_benchmark(
     dimension = base_vectors.shape[1]
     
     # Reduce queries for large datasets to speed up benchmark
+    # Use sufficient queries for statistical significance
+    # CHANGED: Increased from 100 to 500 for large datasets for better statistics
     if n_vectors >= 1000000:
-        n_queries = min(len(query_vectors), 100)  # Only 100 queries for large datasets
-        print(f"\n[INFO] Using {n_queries} queries for faster benchmarking of large dataset")
+        n_queries = min(len(query_vectors), 500)  # 500 queries for statistical significance
+        print(f"\n[INFO] Using {n_queries} queries for large dataset benchmarking")
     else:
         n_queries = min(len(query_vectors), 1000)  # 1000 queries for smaller datasets
     
@@ -172,10 +174,16 @@ def run_complete_benchmark(
         print("  [OK] Vectors normalized")
 
     # Print index configuration for reproducibility
-    print(f"\n[INDEX CONFIGURATION]")
-    print(f"  Milvus:   HNSW (M=16, efConstruction=200), metric={metric_type}" +
-          (" (normalized for cosine)" if normalize_vectors else ""))
-    print(f"  Weaviate: HNSW (M=64, efConstruction=128, ef=200), metric={info['metric']}")
+    # CHANGED: Using FAIR/IDENTICAL index parameters for both databases
+    FAIR_INDEX_CONFIG = {
+        'M': 16,
+        'efConstruction': 200,
+        'ef': 200
+    }
+    print(f"\n[INDEX CONFIGURATION] (FAIR COMPARISON - identical params)")
+    print(f"  Both DBs: HNSW (M={FAIR_INDEX_CONFIG['M']}, efConstruction={FAIR_INDEX_CONFIG['efConstruction']}, ef={FAIR_INDEX_CONFIG['ef']})")
+    print(f"  Milvus metric: {metric_type}" + (" (normalized for cosine)" if normalize_vectors else ""))
+    print(f"  Weaviate metric: {info['metric']}")
 
     # =========================================================================
     # STEP 2: LOAD DATA INTO DATABASES (with monitoring)
@@ -220,18 +228,16 @@ def run_complete_benchmark(
     else:
         batch_size = max(100, min(10000, 100000 // dimension))
     
-    # Optimize index params for large datasets (faster build)
+    # CHANGED: Use FAIR index params for all dataset sizes (same as Weaviate)
+    # This ensures a fair comparison between the two databases
+    index_params = {"M": FAIR_INDEX_CONFIG['M'], "efConstruction": FAIR_INDEX_CONFIG['efConstruction']}
     if n_vectors >= 10000000:
-        index_params = {"M": 8, "efConstruction": 100}  # Even faster for very large datasets
         index_timeout = 7200  # 2 hour timeout for 10M+
-        print(f"  Using optimized index params for very large dataset: M=8, efConstruction=100")
     elif n_vectors >= 1000000:
-        index_params = {"M": 8, "efConstruction": 128}  # Faster for large datasets
         index_timeout = 1800  # 30 min timeout
-        print(f"  Using optimized index params for large dataset: M=8, efConstruction=128")
     else:
-        index_params = {"M": 16, "efConstruction": 200}  # Better quality for smaller datasets
         index_timeout = 1800
+    print(f"  Using FAIR index params: M={index_params['M']}, efConstruction={index_params['efConstruction']}")
     
     with ResourceMonitor() as milvus_monitor:
         load_start = time.time()
@@ -268,6 +274,16 @@ def run_complete_benchmark(
     print("\n[Weaviate] Loading data...")
     with ResourceMonitor() as weaviate_monitor:
         weaviate_loader = WeaviateLoader()
+        
+        # CHANGED: Override Weaviate's INDEX_CONFIG to match Milvus (FAIR comparison)
+        weaviate_loader.INDEX_CONFIG = {
+            'type': 'HNSW',
+            'ef': FAIR_INDEX_CONFIG['ef'],
+            'efConstruction': FAIR_INDEX_CONFIG['efConstruction'],
+            'maxConnections': FAIR_INDEX_CONFIG['M']  # M in Weaviate is maxConnections
+        }
+        print(f"  Using FAIR index params: M={FAIR_INDEX_CONFIG['M']}, efConstruction={FAIR_INDEX_CONFIG['efConstruction']}, ef={FAIR_INDEX_CONFIG['ef']}")
+        
         weaviate_loader.connect()
         weaviate_loader.create_schema(dimension, metric_type=info['metric'])
 
@@ -330,6 +346,29 @@ def run_complete_benchmark(
 
     runner = BenchmarkRunner(output_dir='results')
 
+    # ADDED: Warm-up queries before measurement
+    n_warmup = min(100, len(query_vectors))
+    print(f"\n[WARMUP] Running {n_warmup} warm-up queries on each database...")
+    
+    # Milvus warm-up
+    warmup_params = {"metric_type": metric_type, "params": {"ef": FAIR_INDEX_CONFIG['ef']}}
+    for q in query_vectors[:n_warmup]:
+        milvus_loader.collection.search(
+            data=[q.tolist()],
+            anns_field="embedding",
+            param=warmup_params,
+            limit=10
+        )
+    
+    # Weaviate warm-up
+    for q in query_vectors[:n_warmup]:
+        weaviate_loader.collection.query.near_vector(
+            near_vector=q.tolist(),
+            limit=10,
+            return_properties=["vectorId"]
+        )
+    print("  [OK] Warm-up complete")
+
     print("\n[Milvus] Running query benchmarks...")
     with ResourceMonitor() as milvus_query_monitor:
         runner.run_benchmark('Milvus', milvus_executor, query_vectors, test_configs, metric_type=metric_type)
@@ -360,8 +399,8 @@ def run_complete_benchmark(
                     continue
 
                 # Milvus recall
-                # ef must be >= k for HNSW search
-                ef_value = max(k, 64)
+                # CHANGED: Use FAIR ef value from config
+                ef_value = max(k, FAIR_INDEX_CONFIG['ef'])
                 milvus_retrieved = []
                 for query in query_vectors:
                     results = milvus_loader.collection.search(
